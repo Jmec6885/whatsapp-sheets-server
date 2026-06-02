@@ -1,7 +1,7 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const express = require('express');
 const QRCodeImage = require('qrcode');
-const axios = require('axios'); // Asegúrate de tener axios para responderle a Google Sheets
+const axios = require('axios'); // Librería para responderle a Google Sheets
 
 const app = express();
 app.use(express.json());
@@ -104,10 +104,12 @@ app.post('/send-message', async (req, res) => {
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
-        // Si la hoja nos proveyó la URL de su WebApp (app_script), le disparamos de vuelta el estado para que pinte "Enviado" en la columna D
-        if (app_script) {
+        // Definimos la URL de destino usando la que viene de la hoja o la tuya fija como respaldo directo
+        const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
+        
+        if (urlDestino) {
             try {
-                await axios.post(app_script, {
+                await axios.post(urlDestino, {
                     v: 'resultado', // Activa el caso correspondiente en tu WebApp de Google
                     mensajes: respuestasParaGoogle
                 });
