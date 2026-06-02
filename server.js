@@ -135,12 +135,19 @@ app.post('/send-message', async (req, res) => {
                     }
                 }
 
-                // Guardamos el estado usando exactamente 'ENVIADO ✅' para que coincida con tus filtros
-                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
+                // Guardamos el estado con la etiqueta exacta que espera tu hoja
+                respuestasParaGoogle.push({ 
+                    posicion: String(msg.posicion), 
+                    estado: 'ENVIADO ✅' 
+                });
 
             } catch (err) {
                 console.error(`Error enviando a ${msg.numero}:`, err.message);
-                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
+                // Si falla el envío por falta de WhatsApp o error, marcamos la etiqueta correspondiente
+                respuestasParaGoogle.push({ 
+                    posicion: String(msg.posicion), 
+                    estado: 'SIN WHATSAPP ❌' 
+                });
             }
 
             await new Promise(resolve => setTimeout(resolve, 2000));
@@ -150,14 +157,15 @@ app.post('/send-message', async (req, res) => {
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
             try {
-                // Adaptación exacta para el doPost de tu Google Apps Script
-                await axios.post(urlDestino, {
-                    v: 'resultado',
-                    resultado: JSON.stringify(respuestasParaGoogle)
-                }, {
-                    headers: { 'Content-Type': 'application/json' }
+                // Enviamos los datos simulando un formulario estructurado para que el doPost lo procese sin fallos
+                const params = new URLSearchParams();
+                params.append('v', 'resultado');
+                params.append('resultado', JSON.stringify(respuestasParaGoogle));
+
+                await axios.post(urlDestino, params.toString(), {
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
                 });
-                console.log('Estados devueltos a Google Sheets con éxito');
+                console.log('Estados devueltos a Google Sheets con éxito:', JSON.stringify(respuestasParaGoogle));
             } catch (googleErr) {
                 console.error('No se pudo actualizar Google Sheets:', googleErr.message);
             }
