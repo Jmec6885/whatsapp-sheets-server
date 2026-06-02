@@ -116,6 +116,16 @@ app.post('/send-message', async (req, res) => {
             console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
 
             try {
+                // VERIFICACIÓN ANTICIPADA: Consultamos si el número realmente posee una cuenta activa
+                const [result] = await sock.onWhatsApp(numeroLimpio);
+                
+                if (!result || !result.exists) {
+                    console.log(`⚠️ El número ${msg.numero} NO existe en WhatsApp. Marcando error.`);
+                    respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
+                    continue; // Saltar a la siguiente fila de inmediato sin intentar el envío
+                }
+
+                // Si el número existe, procedemos con los envíos normales
                 if (msg.mensaje) {
                     await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
                     console.log(`Texto enviado a: ${msg.numero}`);
@@ -135,11 +145,10 @@ app.post('/send-message', async (req, res) => {
                     }
                 }
 
-                // Guardamos el estado usando los valores exactos que procesa tu archivo
                 respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
 
             } catch (err) {
-                console.error(`Error enviando a ${msg.numero}:`, err.message);
+                console.error(`Error de envío en la fila ${msg.posicion}:`, err.message);
                 respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
             }
 
@@ -150,7 +159,6 @@ app.post('/send-message', async (req, res) => {
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
             try {
-                // Modificación Crítica: Enviamos JSON Puro y estructurado con la clave "op" como pide tu doPost
                 await axios.post(urlDestino, {
                     op: 'resultado',
                     mensajes: respuestasParaGoogle
