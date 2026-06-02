@@ -106,7 +106,6 @@ app.post('/send-message', async (req, res) => {
         let respuestasParaGoogle = [];
 
         for (let msg of mensajes) {
-            // Saltar filas sin número
             const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
             if (!numeroStr) {
                 console.log(`Fila ${msg.posicion} sin número válido, se omite.`);
@@ -117,13 +116,11 @@ app.post('/send-message', async (req, res) => {
             console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
 
             try {
-                // Enviar mensaje de texto si existe
                 if (msg.mensaje) {
                     await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
                     console.log(`Texto enviado a: ${msg.numero}`);
                 }
 
-                // Enviar URL/documento si existe
                 if (msg.url) {
                     await new Promise(resolve => setTimeout(resolve, 1500));
                     try {
@@ -138,11 +135,12 @@ app.post('/send-message', async (req, res) => {
                     }
                 }
 
-                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'Enviado' });
+                // Guardamos el estado usando exactamente 'ENVIADO ✅' para que coincida con tus filtros
+                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
 
             } catch (err) {
                 console.error(`Error enviando a ${msg.numero}:`, err.message);
-                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'Error' });
+                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
             }
 
             await new Promise(resolve => setTimeout(resolve, 2000));
@@ -152,9 +150,10 @@ app.post('/send-message', async (req, res) => {
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
             try {
+                // Adaptación exacta para el doPost de tu Google Apps Script
                 await axios.post(urlDestino, {
-                    op: 'resultado',
-                    mensajes: respuestasParaGoogle
+                    v: 'resultado',
+                    resultado: JSON.stringify(respuestasParaGoogle)
                 }, {
                     headers: { 'Content-Type': 'application/json' }
                 });
