@@ -126,18 +126,19 @@ app.post('/send-message', async (req, res) => {
 
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
         
-        if (urlDestino) {
-            try {
-                // Modificamos la estructura para que sea compatible con el receptor de tu Google Apps Script
-                await axios.post(urlDestino, {
-                    v: 'resultado', 
-                    resultado: JSON.stringify(respuestasParaGoogle) // Convertimos el arreglo a texto plano para que tu doPost lo lea bien
-                });
-                console.log('Estados devueltos a Google Sheets con éxito');
-            } catch (googleErr) {
-                console.error('No se pudo actualizar la columna D en Google Sheets:', googleErr.message);
-            }
-        }
+       if (urlDestino) {
+    try {
+        await axios.post(urlDestino, {
+            op: 'resultado',
+            mensajes: respuestasParaGoogle
+        }, {
+            headers: { 'Content-Type': 'application/json' }
+        });
+        console.log('Estados devueltos a Google Sheets con éxito');
+    } catch (googleErr) {
+        console.error('No se pudo actualizar Google Sheets:', googleErr.message);
+    }
+}
     } else {
         return res.status(400).json({ status: '-1', message: 'Estructura desconocida o vacía' });
     }
