@@ -32,7 +32,6 @@ async function connectToWhatsApp() {
             const { connection, lastDisconnect, qr } = update;
             
             if (qr) {
-                // Si llega el código QR, limpiamos cualquier temporizador de error
                 if (initTimeout) clearTimeout(initTimeout);
                 currentQrCode = await QRCodeImage.toDataURL(qr);
                 console.log('=== NUEVO CÓDIGO QR GENERADO CON ÉXITO ===');
@@ -44,9 +43,8 @@ async function connectToWhatsApp() {
                 const statusCode = lastDisconnect.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                 console.log(`Conexión cerrada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
-                
                 if (shouldReconnect) {
-                    setTimeout(connectToWhatsApp, 5000); // Espera 5 segundos antes de reintentar
+                    setTimeout(connectToWhatsApp, 5000);
                 }
             } else if (connection === 'open') {
                 if (initTimeout) clearTimeout(initTimeout);
@@ -56,12 +54,11 @@ async function connectToWhatsApp() {
             }
         });
 
-        // Mecanismo de emergencia: Si en 45 segundos Baileys no genera QR ni conecta, reiniciamos el bucle
         if (initTimeout) clearTimeout(initTimeout);
         initTimeout = setTimeout(() => {
             if (!isConnected && !currentQrCode) {
-                console.log('Detectada inactividad en el arranque. Forzando reinicio de Baileys...');
-                try { sock.logout(); } catch(e){}
+                console.log('Detectada inactividad. Forzando reinicio de Baileys...');
+                try { sock.logout(); } catch(e) {}
                 connectToWhatsApp();
             }
         }, 45000);
@@ -72,33 +69,31 @@ async function connectToWhatsApp() {
     }
 }
 
-// Interfaz Web nítida
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     if (isConnected) {
-        return res.send('<h1 style="color: green; font-family: Arial; text-align: center; margin-top: 50px;">=== ¡CONEXIÓN EXITOSA CON WHATSAPP DISPONIBLE! ===</h1>');
+        return res.send('<h1 style="color:green;font-family:Arial;text-align:center;margin-top:50px">=== ¡CONEXIÓN EXITOSA CON WHATSAPP DISPONIBLE! ===</h1>');
     }
     if (currentQrCode) {
         return res.send(`
-            <div style="font-family: Arial; text-align: center; margin-top: 50px;">
+            <div style="font-family:Arial;text-align:center;margin-top:50px">
                 <h1>Escanea este código QR con tu WhatsApp</h1>
                 <p>Ve a Dispositivos vinculados > Vincular un dispositivo en tu teléfono.</p>
-                <img src="${currentQrCode}" style="border: 2px solid #000; padding: 10px; width: 300px; height: 300px;" />
+                <img src="${currentQrCode}" style="border:2px solid #000;padding:10px;width:300px;height:300px"/>
                 <script>setTimeout(() => { location.reload(); }, 15000);</script>
             </div>
         `);
     }
     return res.send(`
-        <div style="font-family: Arial; text-align: center; margin-top: 50px;">
+        <div style="font-family:Arial;text-align:center;margin-top:50px">
             <h1>Generando código QR...</h1>
             <p>El servidor se está enlazando con los servidores de WhatsApp.</p>
-            <p style="color: gray; font-size: 13px;">Esta página se refrescará automáticamente.</p>
+            <p style="color:gray;font-size:13px">Esta página se refrescará automáticamente.</p>
             <script>setTimeout(() => { location.reload(); }, 5000);</script>
         </div>
     `);
 });
 
-// Procesador Masivo de Mensajes
 app.post('/send-message', async (req, res) => {
     const { op, mensajes, app_script } = req.body;
 
@@ -111,34 +106,64 @@ app.post('/send-message', async (req, res) => {
         let respuestasParaGoogle = [];
 
         for (let msg of mensajes) {
+            // Saltar filas sin número
+            const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
+            if (!numeroStr) {
+                console.log(`Fila ${msg.posicion} sin número válido, se omite.`);
+                continue;
+            }
+
+            const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
+            console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
+
             try {
-                const numeroLimpio = `${String(msg.numero).replace(/[^0-9]/g, '')}@s.whatsapp.net`;
-                await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
-                console.log(`Mensaje enviado con éxito a: ${msg.numero}`);
+                // Enviar mensaje de texto si existe
+                if (msg.mensaje) {
+                    await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
+                    console.log(`Texto enviado a: ${msg.numero}`);
+                }
+
+                // Enviar URL/documento si existe
+                if (msg.url) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    try {
+                        await sock.sendMessage(numeroLimpio, {
+                            document: { url: msg.url },
+                            mimetype: 'application/pdf',
+                            fileName: 'documento.pdf'
+                        });
+                        console.log(`URL enviada a: ${msg.numero}`);
+                    } catch (urlErr) {
+                        console.error(`Error enviando URL a ${msg.numero}:`, urlErr.message);
+                    }
+                }
 
                 respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'Enviado' });
+
             } catch (err) {
-                console.error(`Error enviando a ${msg.numero}:`, err);
+                console.error(`Error enviando a ${msg.numero}:`, err.message);
                 respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'Error' });
             }
+
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
-        
-       if (urlDestino) {
-    try {
-        await axios.post(urlDestino, {
-            op: 'resultado',
-            mensajes: respuestasParaGoogle
-        }, {
-            headers: { 'Content-Type': 'application/json' }
-        });
-        console.log('Estados devueltos a Google Sheets con éxito');
-    } catch (googleErr) {
-        console.error('No se pudo actualizar Google Sheets:', googleErr.message);
-    }
-}
+
+        if (urlDestino && respuestasParaGoogle.length > 0) {
+            try {
+                await axios.post(urlDestino, {
+                    op: 'resultado',
+                    mensajes: respuestasParaGoogle
+                }, {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                console.log('Estados devueltos a Google Sheets con éxito');
+            } catch (googleErr) {
+                console.error('No se pudo actualizar Google Sheets:', googleErr.message);
+            }
+        }
+
     } else {
         return res.status(400).json({ status: '-1', message: 'Estructura desconocida o vacía' });
     }
