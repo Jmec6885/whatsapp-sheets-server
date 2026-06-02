@@ -1,12 +1,13 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const express = require('express');
-const QRCodeImage = require('qrcode'); // Cambiamos a esta librería para generar imágenes reales
+const QRCodeImage = require('qrcode');
 const app = express();
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Permite procesar datos si vienen en formato de formulario
 
 let sock;
-let currentQrCode = null; // Aquí guardaremos el QR actual en formato de imagen
+let currentQrCode = null;
 let isConnected = false;
 
 async function connectToWhatsApp() {
@@ -14,7 +15,7 @@ async function connectToWhatsApp() {
     
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false // Ya no imprimimos el QR roto en la consola
+        printQRInTerminal: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -23,7 +24,6 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            // Convertimos el código de texto en una imagen Base64 para mostrarla en el navegador
             currentQrCode = await QRCodeImage.toDataURL(qr);
             console.log('=== NUEVO CÓDIGO QR GENERADO: Abre la URL de tu servicio para escanearlo ===');
         }
@@ -44,14 +44,11 @@ async function connectToWhatsApp() {
     });
 }
 
-// Ruta principal (Página Web para escanear el QR)
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    
     if (isConnected) {
         return res.send('<h1 style="color: green; font-family: Arial; text-align: center; margin-top: 50px;">=== ¡CONEXIÓN EXITOSA CON WHATSAPP DISPONIBLE! ===</h1>');
     }
-    
     if (currentQrCode) {
         return res.send(`
             <div style="font-family: Arial; text-align: center; margin-top: 50px;">
@@ -63,23 +60,33 @@ app.get('/', (req, res) => {
             </div>
         `);
     }
-    
     return res.send('<h1 style="font-family: Arial; text-align: center; margin-top: 50px;">Generando código QR... Por favor, recarga en unos segundos.</h1>');
 });
 
-// Ruta API para recibir las órdenes de envío de Google Sheets
+// Ruta de envío mejorada e híbrida para acoplarse a Google Sheets
 app.post('/send-message', async (req, res) => {
-    const { number, message } = req.body;
+    console.log('Datos recibidos desde Google Sheets:', JSON.stringify(req.body));
+    
+    // Mapeo flexible: intenta buscar el número y el texto en cualquier formato común de las plantillas masivas
+    const number = req.body.number || req.body.numero || (req.body.body && (req.body.body.number || req.body.body.numero));
+    const message = req.body.message || req.body.texto || req.body.text || (req.body.body && (req.body.body.message || req.body.body.texto));
+
+    if (!number || !message) {
+        console.log('Estructura de datos no reconocida');
+        return res.status(400).json({ status: 'error', message: 'Falta el número o el mensaje en la petición' });
+    }
 
     if (!sock || !isConnected) {
         return res.status(500).json({ status: 'error', message: 'El servidor de WhatsApp no está conectado' });
     }
 
     try {
-        const formattedNumber = `${number.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
+        const formattedNumber = `${String(number).replace(/[^0-9]/g, '')}@s.whatsapp.net`;
         await sock.sendMessage(formattedNumber, { text: message });
         console.log(`Mensaje enviado con éxito a: ${number}`);
-        return res.json({ status: 'success', message: 'Mensaje enviado correctamente' });
+        
+        // Devolvemos la respuesta exacta que Google Sheets espera para escribir "Enviado" en la celda
+        return res.json({ status: 'success', message: 'Enviado' });
     } catch (error) {
         console.error('Error al enviar mensaje:', error);
         return res.status(500).json({ status: 'error', message: error.toString() });
