@@ -184,34 +184,3 @@ app.listen(PORT, () => {
     connectToWhatsApp();
 });
 
-
-function doPost(e) {
-  try {
-    const operacion = JSON.parse(e.postData.contents);
-    
-    if (operacion.op === 'resultado' && operacion.mensajes) {
-      const hoja = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-      
-      for (let i = 0; i < operacion.mensajes.length; i++) {
-        const fila = 2 + parseInt(operacion.mensajes[i].posicion);
-        const estado = operacion.mensajes[i].estado;
-        
-        // Columna F = 6
-        hoja.getRange(fila, 6).setValue(estado);
-        
-        // Color según estado
-        if (estado === 'ENVIADO ✅') {
-          hoja.getRange(fila, 6).setBackground('#b7e1cd');
-        } else if (estado === 'SIN WHATSAPP ❌') {
-          hoja.getRange(fila, 6).setBackground('#f4cccc');
-        }
-      }
-      
-      return ContentService.createTextOutput(JSON.stringify({ status: '0', message: 'OK' }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-  } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({ status: '-1', message: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
