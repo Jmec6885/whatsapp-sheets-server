@@ -115,25 +115,6 @@ app.post('/send-message', async (req, res) => {
             const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
             console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
 
-            let existeNumero = true;
-
-            // Verificación protegida para evitar caídas del servidor
-            try {
-                const result = await sock.onWhatsApp(numeroLimpio);
-                if (!result || result.length === 0 || !result[0].exists) {
-                    existeNumero = false;
-                }
-            } catch (checkErr) {
-                console.log(`No se pudo verificar el número ${msg.numero} de forma anticipada. Intentando envío directo...`);
-                existeNumero = true; // Si falla la consulta, asumimos verdadero para intentar enviar de todos modos
-            }
-
-            if (!existeNumero) {
-                console.log(`⚠️ El número ${msg.numero} NO cuenta con WhatsApp activo.`);
-                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
-                continue;
-            }
-
             try {
                 if (msg.mensaje) {
                     await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
@@ -157,12 +138,11 @@ app.post('/send-message', async (req, res) => {
                 respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
 
             } catch (err) {
-                console.error(`Error de envío real en la fila ${msg.posicion}:`, err.message);
+                console.error(`Falla detectada en la fila ${msg.posicion} (${msg.numero}):`, err.message);
                 respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
             }
 
-            // Pausa entre mensajes para dar estabilidad al sistema
-            await new Promise(resolve => setTimeout(resolve, 2500));
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
