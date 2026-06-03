@@ -157,7 +157,7 @@ app.post('/send-message', async (req, res) => {
     await new Promise(resolve => setTimeout(resolve, 3000));
 }
 
-        const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
+        const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbwxcOuG0ub5eZ9_In-Df39WhqiliOlvxK6xjJZKV42-F3m5HXB5i5Fr35gSFcgQm-6Lkg/exec";
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
             try {
