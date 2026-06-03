@@ -116,11 +116,13 @@ app.post('/send-message', async (req, res) => {
             console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
 
             try {
+                // Intentamos el envío directo del texto
                 if (msg.mensaje) {
                     await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
                     console.log(`Texto enviado a: ${msg.numero}`);
                 }
 
+                // Intentamos el envío del documento PDF si existe
                 if (msg.url) {
                     await new Promise(resolve => setTimeout(resolve, 1500));
                     try {
@@ -135,14 +137,25 @@ app.post('/send-message', async (req, res) => {
                     }
                 }
 
+                // Si todo se ejecuta sin lanzar excepciones, el número es válido y recibió el mensaje
                 respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
 
             } catch (err) {
+                // Analizamos el mensaje de error que devuelve la librería Baileys
+                const errorMsg = String(err.message || '').toLowerCase();
                 console.error(`Falla detectada en la fila ${msg.posicion} (${msg.numero}):`, err.message);
-                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
+                
+                // Si el error contiene texto de número no encontrado o es una falla de entrega asíncrona, es SIN WHATSAPP
+                if (errorMsg.includes('not-found') || errorMsg.includes('404') || errorMsg.includes('item-not-found') || errorMsg.includes('invalid')) {
+                    respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
+                } else {
+                    // Por seguridad, si es cualquier otro error técnico de red, también lo marcamos para que lo revises
+                    respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
+                }
             }
 
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Subimos un poco el tiempo a 3 segundos para darle tiempo a WhatsApp de responder si el número existe o no
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
