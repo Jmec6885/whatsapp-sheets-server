@@ -106,70 +106,86 @@ app.post('/send-message', async (req, res) => {
         let respuestasParaGoogle = [];
 
         for (let msg of mensajes) {
-    const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
-    if (!numeroStr) {
-        console.log(`Fila ${msg.posicion} sin número válido, se omite.`);
-        continue;
-    }
-
-    const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
-    console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
-
-    try {
-        // Verificar si el número tiene WhatsApp antes de enviar
-        const [resultado] = await sock.onWhatsApp(numeroLimpio);
-        
-        if (!resultado || !resultado.exists) {
-            console.log(`Número sin WhatsApp: ${msg.numero}`);
-            respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            continue;
-        }
-
-        // Enviar mensaje de texto
-        if (msg.mensaje) {
-            await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
-            console.log(`Texto enviado a: ${msg.numero}`);
-        }
-
-        // Enviar URL si existe
-        if (msg.url) {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            try {
-                await sock.sendMessage(numeroLimpio, {
-                    document: { url: msg.url },
-                    mimetype: 'application/pdf',
-                    fileName: 'documento.pdf'
-                });
-                console.log(`URL enviada a: ${msg.numero}`);
-            } catch (urlErr) {
-                console.error(`Error enviando URL a ${msg.numero}:`, urlErr.message);
+            const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
+            if (!numeroStr) {
+                console.log(`Fila ${msg.posicion} sin número válido, se omite.`);
+                continue;
             }
+
+            const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
+            console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
+
+            try {
+                // Verificar si el número tiene WhatsApp antes de enviar
+                const [resultado] = await sock.onWhatsApp(numeroLimpio);
+                
+                if (!resultado || !resultado.exists) {
+                    console.log(`Número sin WhatsApp: ${msg.numero}`);
+                    respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    continue;
+                }
+
+                // Enviar mensaje de texto
+                if (msg.mensaje) {
+                    await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
+                    console.log(`Texto enviado a: ${msg.numero}`);
+                }
+
+                // Enviar URL si existe
+                if (msg.url) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    try {
+                        await sock.sendMessage(numeroLimpio, {
+                            document: { url: msg.url },
+                            mimetype: 'application/pdf',
+                            fileName: 'documento.pdf'
+                        });
+                        console.log(`URL enviada a: ${msg.numero}`);
+                    } catch (urlErr) {
+                        console.error(`Error enviando URL a ${msg.numero}:`, urlErr.message);
+                    }
+                }
+
+                respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'ENVIADO ✅' });
+
+            } catch (err) {
+                console.error(`Error en fila ${msg.posicion} (${msg.numero}):`, err.message);
+                respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
-        respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
-
-    } catch (err) {
-        console.error(`Error en fila ${msg.posicion} (${msg.numero}):`, err.message);
-        respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 3000));
-}
-
+        // URL de respaldo idéntica a tu macro activa
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
+            console.log(`=== ENVIANDO RESPUESTAS DE VUELTA A GOOGLE SHEETS ===`);
+            console.log(`URL de Destino: ${urlDestino}`);
+            console.log(`Datos enviados: ${JSON.stringify(respuestasParaGoogle)}`);
+
             try {
-                await axios.post(urlDestino, {
+                const responseGoogle = await axios.post(urlDestino, {
                     op: 'resultado',
                     mensajes: respuestasParaGoogle
                 }, {
                     headers: { 'Content-Type': 'application/json' }
                 });
-                console.log('Estados devueltos a Google Sheets con éxito:', JSON.stringify(respuestasParaGoogle));
+
+                console.log('--- RESPUESTA RECIBIDA DESDE GOOGLE SHEETS ---');
+                console.log('Código de estado:', responseGoogle.status);
+                console.log('Cuerpo devuelto:', JSON.stringify(responseGoogle.data));
+                console.log(`====================================================`);
             } catch (googleErr) {
-                console.error('No se pudo actualizar Google Sheets:', googleErr.message);
+                console.error('!!! ERROR EN LA COMUNICACIÓN CON GOOGLE SHEETS !!!');
+                if (googleErr.response) {
+                    console.error('Código del estado del error:', googleErr.response.status);
+                    console.error('Detalles del Servidor de Google:', JSON.stringify(googleErr.response.data));
+                } else {
+                    console.error('Mensaje de error básico:', googleErr.message);
+                }
+                console.error(`====================================================`);
             }
         }
 
@@ -183,4 +199,3 @@ app.listen(PORT, () => {
     console.log(`Servidor activo en puerto ${PORT}`);
     connectToWhatsApp();
 });
-
