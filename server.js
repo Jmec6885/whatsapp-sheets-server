@@ -106,57 +106,56 @@ app.post('/send-message', async (req, res) => {
         let respuestasParaGoogle = [];
 
         for (let msg of mensajes) {
-            const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
-            if (!numeroStr) {
-                console.log(`Fila ${msg.posicion} sin número válido, se omite.`);
-                continue;
-            }
+    const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
+    if (!numeroStr) {
+        console.log(`Fila ${msg.posicion} sin número válido, se omite.`);
+        continue;
+    }
 
-            const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
-            console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
+    const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
+    console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
 
-            try {
-                // Intentamos el envío directo del texto
-                if (msg.mensaje) {
-                    await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
-                    console.log(`Texto enviado a: ${msg.numero}`);
-                }
-
-                // Intentamos el envío del documento PDF si existe
-                if (msg.url) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                    try {
-                        await sock.sendMessage(numeroLimpio, {
-                            document: { url: msg.url },
-                            mimetype: 'application/pdf',
-                            fileName: 'documento.pdf'
-                        });
-                        console.log(`URL enviada a: ${msg.numero}`);
-                    } catch (urlErr) {
-                        console.error(`Error enviando URL a ${msg.numero}:`, urlErr.message);
-                    }
-                }
-
-                // Si todo se ejecuta sin lanzar excepciones, el número es válido y recibió el mensaje
-                respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
-
-            } catch (err) {
-                // Analizamos el mensaje de error que devuelve la librería Baileys
-                const errorMsg = String(err.message || '').toLowerCase();
-                console.error(`Falla detectada en la fila ${msg.posicion} (${msg.numero}):`, err.message);
-                
-                // Si el error contiene texto de número no encontrado o es una falla de entrega asíncrona, es SIN WHATSAPP
-                if (errorMsg.includes('not-found') || errorMsg.includes('404') || errorMsg.includes('item-not-found') || errorMsg.includes('invalid')) {
-                    respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
-                } else {
-                    // Por seguridad, si es cualquier otro error técnico de red, también lo marcamos para que lo revises
-                    respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
-                }
-            }
-
-            // Subimos un poco el tiempo a 3 segundos para darle tiempo a WhatsApp de responder si el número existe o no
-            await new Promise(resolve => setTimeout(resolve, 3000));
+    try {
+        // Verificar si el número tiene WhatsApp antes de enviar
+        const [resultado] = await sock.onWhatsApp(numeroLimpio);
+        
+        if (!resultado || !resultado.exists) {
+            console.log(`Número sin WhatsApp: ${msg.numero}`);
+            respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            continue;
         }
+
+        // Enviar mensaje de texto
+        if (msg.mensaje) {
+            await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
+            console.log(`Texto enviado a: ${msg.numero}`);
+        }
+
+        // Enviar URL si existe
+        if (msg.url) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            try {
+                await sock.sendMessage(numeroLimpio, {
+                    document: { url: msg.url },
+                    mimetype: 'application/pdf',
+                    fileName: 'documento.pdf'
+                });
+                console.log(`URL enviada a: ${msg.numero}`);
+            } catch (urlErr) {
+                console.error(`Error enviando URL a ${msg.numero}:`, urlErr.message);
+            }
+        }
+
+        respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'ENVIADO ✅' });
+
+    } catch (err) {
+        console.error(`Error en fila ${msg.posicion} (${msg.numero}):`, err.message);
+        respuestasParaGoogle.push({ posicion: msg.posicion, estado: 'SIN WHATSAPP ❌' });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 3000));
+}
 
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
 
