@@ -102,25 +102,35 @@ app.post('/send-message', async (req, res) => {
             return res.status(500).json({ status: '-1', message: 'WhatsApp desvinculado' });
         }
 
+        // Respondemos de inmediato a Google Sheets para evitar congelamientos de pantalla
         res.json({ status: '0', message: 'Procesando mensajes en segundo plano...' });
         let respuestasParaGoogle = [];
 
         for (let msg of mensajes) {
             const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
             if (!numeroStr) {
-                console.log(`Fila ${msg.posicion} sin número válido, se omite.`);
+                console.log(`Fila con índice de envío ${msg.posicion} sin número válido, se omite.`);
                 continue;
             }
 
             const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
-            console.log(`Procesando fila ${msg.posicion} — número: ${numeroLimpio}`);
+            console.log(`Procesando índice de envío ${msg.posicion} — número: ${numeroLimpio}`);
 
             try {
-                // Verificar si el número tiene WhatsApp antes de enviar
-                const [resultado] = await sock.onWhatsApp(numeroLimpio);
+                // Validación de WhatsApp segura contra caídas o respuestas vacías
+                let existeNumero = false;
+                try {
+                    const checkStatus = await sock.onWhatsApp(numeroLimpio);
+                    if (checkStatus && checkStatus.length > 0 && checkStatus[0].exists) {
+                        existeNumero = true;
+                    }
+                } catch (errCheck) {
+                    console.log(`No se pudo verificar la existencia del número ${msg.numero}, intentando enviar directamente.`);
+                    existeNumero = true; 
+                }
                 
-                if (!resultado || !resultado.exists) {
-                    console.log(`Número sin WhatsApp: ${msg.numero}`);
+                if (!existeNumero) {
+                    console.log(`Número sin WhatsApp confirmado: ${msg.numero}`);
                     respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     continue;
@@ -132,7 +142,7 @@ app.post('/send-message', async (req, res) => {
                     console.log(`Texto enviado a: ${msg.numero}`);
                 }
 
-                // Enviar URL si existe
+                // Enviar archivo adjunto si la URL está presente
                 if (msg.url) {
                     await new Promise(resolve => setTimeout(resolve, 1500));
                     try {
@@ -150,27 +160,28 @@ app.post('/send-message', async (req, res) => {
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'ENVIADO ✅' });
 
             } catch (err) {
-                console.error(`Error en fila ${msg.posicion} (${msg.numero}):`, err.message);
+                console.error(`Error procesando índice de envío ${msg.posicion} (${msg.numero}):`, err.message);
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
             }
 
+            // Intervalo de seguridad entre envíos
             await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
-        // URL de respaldo idéntica a tu macro activa
-        const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxKS3U9uxfXVfI9QntD00b_HYa1Me91HktweJZSExpOGTtp7rf-McKXnY4oRWjOVTga/exec";
+        // Sincronización exacta de la URL de destino de tu macro actual
+        const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxcOuG0ub5eZ9_In-Df39WhqiliOlvxK6xjJZKV42-F3m5HXB5i5Fr35gSFcgQm-6Lkg/exec";
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
             console.log(`=== ENVIANDO RESPUESTAS DE VUELTA A GOOGLE SHEETS ===`);
-            console.log(`URL de Destino: ${urlDestino}`);
-            console.log(`Datos enviados: ${JSON.stringify(respuestasParaGoogle)}`);
+            console.log(`URL de Destino Sincronizada: ${urlDestino}`);
 
             try {
                 const responseGoogle = await axios.post(urlDestino, {
                     op: 'resultado',
                     mensajes: respuestasParaGoogle
                 }, {
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 20000
                 });
 
                 console.log('--- RESPUESTA RECIBIDA DESDE GOOGLE SHEETS ---');
