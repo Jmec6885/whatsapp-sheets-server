@@ -102,7 +102,6 @@ app.post('/send-message', async (req, res) => {
             return res.status(500).json({ status: '-1', message: 'WhatsApp desvinculado' });
         }
 
-        // Respondemos de inmediato a Google Sheets para evitar congelamientos de pantalla
         res.json({ status: '0', message: 'Procesando mensajes en segundo plano...' });
         let respuestasParaGoogle = [];
 
@@ -117,7 +116,6 @@ app.post('/send-message', async (req, res) => {
             console.log(`Procesando índice de envío ${msg.posicion} — número: ${numeroLimpio}`);
 
             try {
-                // Validación de WhatsApp segura contra caídas o respuestas vacías
                 let existeNumero = false;
                 try {
                     const checkStatus = await sock.onWhatsApp(numeroLimpio);
@@ -136,13 +134,11 @@ app.post('/send-message', async (req, res) => {
                     continue;
                 }
 
-                // Enviar mensaje de texto
                 if (msg.mensaje) {
                     await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
                     console.log(`Texto enviado a: ${msg.numero}`);
                 }
 
-                // Enviar archivo adjunto si la URL está presente
                 if (msg.url) {
                     await new Promise(resolve => setTimeout(resolve, 1500));
                     try {
@@ -164,11 +160,9 @@ app.post('/send-message', async (req, res) => {
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
             }
 
-            // Intervalo de seguridad entre envíos
             await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
-        // Sincronización exacta de la URL de destino de tu macro actual
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbyiQd0fN6VVWL5FR85VJyOF_QzdjcvGIujVeBBTqiL992BKy8G0cfPBl__jnE0N0QMDYA/exec";
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
@@ -203,6 +197,11 @@ app.post('/send-message', async (req, res) => {
     } else {
         return res.status(400).json({ status: '-1', message: 'Estructura desconocida o vacía' });
     }
+});
+
+// NUEVA RUTA: Agregada aquí para mantener despierto el servicio antes del listen
+app.get('/ping', (req, res) => {
+    res.json({ status: 'ok', connected: isConnected, time: new Date().toISOString() });
 });
 
 const PORT = process.env.PORT || 3000;
