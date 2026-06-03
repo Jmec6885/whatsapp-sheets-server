@@ -169,7 +169,7 @@ app.post('/send-message', async (req, res) => {
         }
 
         // Sincronización exacta de la URL de destino de tu macro actual
-        const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbxcOuG0ub5eZ9_In-Df39WhqiliOlvxK6xjJZKV42-F3m5HXB5i5Fr35gSFcgQm-6Lkg/exec";
+        const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbyiQd0fN6VVWL5FR85VJyOF_QzdjcvGIujVeBBTqiL992BKy8G0cfPBl__jnE0N0QMDYA/exec";
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
             console.log(`=== ENVIANDO RESPUESTAS DE VUELTA A GOOGLE SHEETS ===`);
