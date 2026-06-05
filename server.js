@@ -130,9 +130,18 @@ app.post('/send-message', async (req, res) => {
                 if (!existeNumero) {
                     console.log(`Número sin WhatsApp confirmado: ${msg.numero}`);
                     respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
-                    await new Promise(resolve => setTimeout(resolve, 1000));
                     continue;
                 }
+
+                // === CAMBIO 1: SIMULAR ESCRITURA HUMANA ("Escribiendo...") ===
+                try {
+                    await sock.sendPresenceUpdate('composing', numeroLimpio);
+                } catch (ePresence) {
+                    console.log('No se pudo enviar presencia de escritura, continuando...');
+                }
+                
+                // Esperar 4 segundos simulando que el operador está digitando el mensaje
+                await new Promise(resolve => setTimeout(resolve, 4000));
 
                 if (msg.mensaje) {
                     await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
@@ -140,7 +149,8 @@ app.post('/send-message', async (req, res) => {
                 }
 
                 if (msg.url) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    // Esperar un breve instante simulando la carga del documento antes de despacharlo
+                    await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
                         await sock.sendMessage(numeroLimpio, {
                             document: { url: msg.url },
@@ -160,7 +170,11 @@ app.post('/send-message', async (req, res) => {
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
             }
 
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // === CAMBIO 2: INTERVALO ALEATORIO HUMANO (Entre 8 y 16 segundos) ===
+            // Esto elimina las salidas masivas en el mismo segundo y previene bloqueos
+            const esperaAleatoria = Math.floor(Math.random() * (16000 - 8000 + 1)) + 8000;
+            console.log(`Pausa de seguridad anti-baneo: Esperando ${esperaAleatoria / 1000} segundos antes del siguiente...`);
+            await new Promise(resolve => setTimeout(resolve, esperaAleatoria));
         }
 
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbyiQd0fN6VVWL5FR85VJyOF_QzdjcvGIujVeBBTqiL992BKy8G0cfPBl__jnE0N0QMDYA/exec";
@@ -199,7 +213,6 @@ app.post('/send-message', async (req, res) => {
     }
 });
 
-// NUEVA RUTA: Agregada aquí para mantener despierto el servicio antes del listen
 app.get('/ping', (req, res) => {
     res.json({ status: 'ok', connected: isConnected, time: new Date().toISOString() });
 });
