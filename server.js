@@ -104,6 +104,9 @@ app.post('/send-message', async (req, res) => {
 
         res.json({ status: '0', message: 'Procesando mensajes en segundo plano...' });
         let respuestasParaGoogle = [];
+        
+        // VARIABLE NUEVA: Mantiene la cuenta de mensajes consecutivos procesados en la ráfaga
+        let contadorEnviosSeguidos = 0;
 
         for (let msg of mensajes) {
             const numeroStr = String(msg.numero || '').replace(/[^0-9]/g, '').trim();
@@ -133,7 +136,7 @@ app.post('/send-message', async (req, res) => {
                     continue;
                 }
 
-                // === CAMBIO 1: SIMULAR ESCRITURA HUMANA ("Escribiendo...") ===
+                // SIMULAR ESCRITURA HUMANA ("Escribiendo...")
                 try {
                     await sock.sendPresenceUpdate('composing', numeroLimpio);
                 } catch (ePresence) {
@@ -164,17 +167,26 @@ app.post('/send-message', async (req, res) => {
                 }
 
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'ENVIADO ✅' });
+                
+                // Incrementamos el contador de envíos en la ráfaga actual
+                contadorEnviosSeguidos++;
 
             } catch (err) {
                 console.error(`Error procesando índice de envío ${msg.posicion} (${msg.numero}):`, err.message);
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
             }
 
-            // === CAMBIO 2: INTERVALO ALEATORIO HUMANO (Entre 8 y 16 segundos) ===
-            // Esto elimina las salidas masivas en el mismo segundo y previene bloqueos
-            const esperaAleatoria = Math.floor(Math.random() * (16000 - 8000 + 1)) + 8000;
-            console.log(`Pausa de seguridad anti-baneo: Esperando ${esperaAleatoria / 1000} segundos antes del siguiente...`);
-            await new Promise(resolve => setTimeout(resolve, esperaAleatoria));
+            // === LÓGICA DE BLINDAJE AVANZADO ANTI-BANEO ===
+            if (contadorEnviosSeguidos >= 3) {
+                console.log('=== ALERTA DE RÁFAGA: Se enviaron 3 mensajes seguidos. Forzando un descanso de 60 segundos... ===');
+                await new Promise(resolve => setTimeout(resolve, 60000));
+                contadorEnviosSeguidos = 0; // Reiniciamos el contador tras la pausa larga
+            } else {
+                // Intervalo variable aumentado (Entre 15 y 25 segundos) para mitigar el rastreo automatizado de Meta
+                const esperaAleatoria = Math.floor(Math.random() * (25000 - 15000 + 1)) + 15000;
+                console.log(`Pausa de seguridad estándar: Esperando ${esperaAleatoria / 1000} segundos antes del siguiente...`);
+                await new Promise(resolve => setTimeout(resolve, esperaAleatoria));
+            }
         }
 
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbyiQd0fN6VVWL5FR85VJyOF_QzdjcvGIujVeBBTqiL992BKy8G0cfPBl__jnE0N0QMDYA/exec";
