@@ -7,18 +7,20 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-let sock = null;
-let currentQrCode = null;
-let isConnected = false;
-let initTimeout = null;
+// === CONFIGURACIÓN GLOBAL DE LAS 3 INSTANCIAS EN PARALELO ===
+let instancias = {
+    '1': { sock: null, currentQrCode: null, isConnected: false, initTimeout: null, authFolder: 'auth_1', label: 'Línea 1 (7:00 AM - 10:00 AM)' },
+    '2': { sock: null, currentQrCode: null, isConnected: false, initTimeout: null, authFolder: 'auth_2', label: 'Línea 2 (10:01 AM - 2:00 PM)' },
+    '3': { sock: null, currentQrCode: null, isConnected: false, initTimeout: null, authFolder: 'auth_3', label: 'Línea 3 (2:01 PM - 6:00 PM)' }
+};
 
-async function connectToWhatsApp() {
-    console.log('Iniciando ciclo de conexión con Baileys...');
+async function connectInstance(id) {
+    console.log(`Iniciando ciclo de conexión con Baileys para la Instancia ${id}...`);
     try {
-        const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+        const { state, saveCreds } = await useMultiFileAuthState(instancias[id].authFolder);
         const { version } = await fetchLatestBaileysVersion();
         
-        sock = makeWASocket({
+        let sock = makeWASocket({
             version,
             auth: state,
             printQRInTerminal: false,
@@ -26,86 +28,130 @@ async function connectToWhatsApp() {
             connectTimeoutMs: 60000
         });
 
+        instancias[id].sock = sock;
+
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
             if (qr) {
-                if (initTimeout) clearTimeout(initTimeout);
-                currentQrCode = await QRCodeImage.toDataURL(qr);
-                console.log('=== NUEVO CÓDIGO QR GENERADO CON ÉXITO ===');
+                if (instancias[id].initTimeout) clearTimeout(instancias[id].initTimeout);
+                instancias[id].currentQrCode = await QRCodeImage.toDataURL(qr);
+                console.log(`=== NUEVO CÓDIGO QR GENERADO CON ÉXITO PARA INSTANCIA ${id} ===`);
             }
             
             if (connection === 'close') {
-                isConnected = false;
-                currentQrCode = null;
+                instancias[id].isConnected = false;
+                instancias[id].currentQrCode = null;
                 const statusCode = lastDisconnect.error?.output?.statusCode;
                 const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log(`Conexión cerrada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
+                console.log(`Instancia ${id} cerrada (Código: ${statusCode}). Reconectando: ${shouldReconnect}`);
                 if (shouldReconnect) {
-                    setTimeout(connectToWhatsApp, 5000);
+                    setTimeout(() => connectInstance(id), 5000);
                 }
             } else if (connection === 'open') {
-                if (initTimeout) clearTimeout(initTimeout);
-                isConnected = true;
-                currentQrCode = null;
-                console.log('=== CONEXIÓN EXITOSA ESTABLECIDA CON WHATSAPP ===');
+                if (instancias[id].initTimeout) clearTimeout(instancias[id].initTimeout);
+                instancias[id].isConnected = true;
+                instancias[id].currentQrCode = null;
+                console.log(`=== CONEXIÓN EXITOSA ESTABLECIDA CON WHATSAPP EN INSTANCIA ${id} ===`);
             }
         });
 
-        if (initTimeout) clearTimeout(initTimeout);
-        initTimeout = setTimeout(() => {
-            if (!isConnected && !currentQrCode) {
-                console.log('Detectada inactividad. Forzando reinicio de Baileys...');
-                try { sock.logout(); } catch(e) {}
-                connectToWhatsApp();
+        if (instancias[id].initTimeout) clearTimeout(instancias[id].initTimeout);
+        instancias[id].initTimeout = setTimeout(() => {
+            if (!instancias[id].isConnected && !instancias[id].currentQrCode) {
+                console.log(`Detectada inactividad en Instancia ${id}. Forzando reinicio de Baileys...`);
+                try { instancias[id].sock.logout(); } catch(e) {}
+                connectInstance(id);
             }
         }, 45000);
 
     } catch (error) {
-        console.error('Error crítico en la inicialización de Baileys:', error);
-        setTimeout(connectToWhatsApp, 10000);
+        console.error(`Error crítico en la inicialización de Baileys para Instancia ${id}:`, error);
+        setTimeout(() => connectInstance(id), 10000);
     }
 }
 
+// Inicializar de golpe las 3 líneas al prender el servidor
+function initAllInstances() {
+    connectInstance('1');
+    connectInstance('2');
+    connectInstance('3');
+}
+
+// === INTERFAZ WEB ADAPTADA PARA CONTROLAR LAS 3 LÍNEAS EN UNA SOLA PÁGINA ===
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    if (isConnected) {
-        return res.send('<h1 style="color:green;font-family:Arial;text-align:center;margin-top:50px">=== ¡CONEXIÓN EXITOSA CON WHATSAPP DISPONIBLE! ===</h1>');
+    
+    let html = `
+    <html lang="es">
+    <head>
+        <title>Panel Multi-Línea WhatsApp</title>
+        <style>
+            body { font-family: Arial, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; text-align: center; }
+            h1 { color: #333; }
+            .container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 30px; }
+            .card { background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; width: 320px; border-top: 5px solid #ccc; }
+            .connected { border-top-color: #2ecc71; }
+            .disconnected { border-top-color: #e74c3c; }
+            .qr-container img { width: 250px; height: 250px; border: 1px solid #ddd; padding: 5px; margin-top: 15px; }
+            .status-badge { display: inline-block; padding: 6px 12px; border-radius: 20px; font-weight: bold; margin-top: 10px; }
+            .status-online { background-color: #e8f8f5; color: #2ecc71; }
+            .status-offline { background-color: #fdedec; color: #e74c3c; }
+        </style>
+        <script>setTimeout(() => { location.reload(); }, 15000);</script>
+    </head>
+    <body>
+        <h1>Panel de Control Multi-Líneas (AES CLESA)</h1>
+        <p style="color: gray;">La página se refresca automáticamente cada 15 segundos para mostrar códigos nuevos o conexiones.</p>
+        <div class="container">
+    `;
+
+    for (let id in instancias) {
+        let inst = instancias[id];
+        let cardClass = inst.isConnected ? 'connected' : 'disconnected';
+        
+        html += `<div class="card ${cardClass}">`;
+        html += `<h2>Instancia ${id}</h2>`;
+        html += `<p style="font-weight: bold; color: #555;">${inst.label}</p>`;
+        
+        if (inst.isConnected) {
+            html += `<span class="status-badge status-online">¡CONECTADO! ✅</span>`;
+            html += `<div style="margin-top: 40px; color: #2ecc71; font-size: 60px;">✔</div>`;
+        } else if (inst.currentQrCode) {
+            html += `<span class="status-badge status-offline">Esperando QR 📲</span>`;
+            html += `<div class="qr-container"><img src="${inst.currentQrCode}"/></div>`;
+            html += `<p style="font-size: 11px; color: gray; margin-top: 5px;">Dispositivos vinculados > Vincular dispositivo</p>`;
+        } else {
+            html += `<span class="status-badge status-offline">Generando QR...</span>`;
+            html += `<p style="margin-top: 40px; color: gray; font-size: 14px;">Estableciendo enlace...</p>`;
+        }
+        html += `</div>`;
     }
-    if (currentQrCode) {
-        return res.send(`
-            <div style="font-family:Arial;text-align:center;margin-top:50px">
-                <h1>Escanea este código QR con tu WhatsApp</h1>
-                <p>Ve a Dispositivos vinculados > Vincular un dispositivo en tu teléfono.</p>
-                <img src="${currentQrCode}" style="border:2px solid #000;padding:10px;width:300px;height:300px"/>
-                <script>setTimeout(() => { location.reload(); }, 15000);</script>
-            </div>
-        `);
-    }
-    return res.send(`
-        <div style="font-family:Arial;text-align:center;margin-top:50px">
-            <h1>Generando código QR...</h1>
-            <p>El servidor se está enlazando con los servidores de WhatsApp.</p>
-            <p style="color:gray;font-size:13px">Esta página se refrescará automáticamente.</p>
-            <script>setTimeout(() => { location.reload(); }, 5000);</script>
-        </div>
-    `);
+
+    html += `</div></body></html>`;
+    res.send(html);
 });
 
+// === RUTA DE RECEPCIÓN: PROCESA SEGÚN LA INSTANCIA SOLICITADA POR GOOGLE ===
 app.post('/send-message', async (req, res) => {
-    const { op, mensajes, app_script } = req.body;
+    const { op, mensajes, app_script, instancia } = req.body;
+
+    // Si por algún motivo Google no especifica la instancia, usamos la '1' por defecto
+    let idInstancia = (instancia && instancias[instancia]) ? String(instancia) : '1';
+    let seleccion = instancias[idInstancia];
 
     if (op === 'registermessage' && mensajes && mensajes.length > 0) {
-        if (!sock || !isConnected) {
-            return res.status(500).json({ status: '-1', message: 'WhatsApp desvinculado' });
+        if (!seleccion.sock || !seleccion.isConnected) {
+            console.error(`Error: Solicitud para Instancia ${idInstancia} pero se encuentra desvinculada.`);
+            return res.status(500).json({ status: '-1', message: `WhatsApp Línea ${idInstancia} desvinculado` });
         }
 
-        res.json({ status: '0', message: 'Procesando mensajes en segundo plano...' });
-        let respuestasParaGoogle = [];
+        console.log(`=== INICIANDO DESPACHO USANDO LA INSTANCIA ${idInstancia} ===`);
+        res.json({ status: '0', message: `Procesando mensajes en segundo plano usando Línea ${idInstancia}...` });
         
-        // VARIABLE NUEVA: Mantiene la cuenta de mensajes consecutivos procesados en la ráfaga
+        let respuestasParaGoogle = [];
         let contadorEnviosSeguidos = 0;
 
         for (let msg of mensajes) {
@@ -116,12 +162,12 @@ app.post('/send-message', async (req, res) => {
             }
 
             const numeroLimpio = `${numeroStr}@s.whatsapp.net`;
-            console.log(`Procesando índice de envío ${msg.posicion} — número: ${numeroLimpio}`);
+            console.log(`[Línea ${idInstancia}] Procesando índice ${msg.posicion} — número: ${numeroLimpio}`);
 
             try {
                 let existeNumero = false;
                 try {
-                    const checkStatus = await sock.onWhatsApp(numeroLimpio);
+                    const checkStatus = await seleccion.sock.onWhatsApp(numeroLimpio);
                     if (checkStatus && checkStatus.length > 0 && checkStatus[0].exists) {
                         existeNumero = true;
                     }
@@ -136,26 +182,22 @@ app.post('/send-message', async (req, res) => {
                     continue;
                 }
 
-                // SIMULAR ESCRITURA HUMANA ("Escribiendo...")
+                // SIMULAR ESCRITURA HUMANA
                 try {
-                    await sock.sendPresenceUpdate('composing', numeroLimpio);
-                } catch (ePresence) {
-                    console.log('No se pudo enviar presencia de escritura, continuando...');
-                }
+                    await seleccion.sock.sendPresenceUpdate('composing', numeroLimpio);
+                } catch (ePresence) {}
                 
-                // Esperar 4 segundos simulando que el operador está digitando el mensaje
                 await new Promise(resolve => setTimeout(resolve, 4000));
 
                 if (msg.mensaje) {
-                    await sock.sendMessage(numeroLimpio, { text: msg.mensaje });
+                    await seleccion.sock.sendMessage(numeroLimpio, { text: msg.mensaje });
                     console.log(`Texto enviado a: ${msg.numero}`);
                 }
 
                 if (msg.url) {
-                    // Esperar un breve instante simulando la carga del documento antes de despacharlo
                     await new Promise(resolve => setTimeout(resolve, 2000));
                     try {
-                        await sock.sendMessage(numeroLimpio, {
+                        await seleccion.sock.sendMessage(numeroLimpio, {
                             document: { url: msg.url },
                             mimetype: 'application/pdf',
                             fileName: 'documento.pdf'
@@ -167,8 +209,6 @@ app.post('/send-message', async (req, res) => {
                 }
 
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'ENVIADO ✅' });
-                
-                // Incrementamos el contador de envíos en la ráfaga actual
                 contadorEnviosSeguidos++;
 
             } catch (err) {
@@ -176,15 +216,14 @@ app.post('/send-message', async (req, res) => {
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
             }
 
-            // === LÓGICA DE BLINDAJE AVANZADO ANTI-BANEO ===
+            // BLINDAJE INTERNO DE LA INSTANCIA SELECCIONADA
             if (contadorEnviosSeguidos >= 3) {
-                console.log('=== ALERTA DE RÁFAGA: Se enviaron 3 mensajes seguidos. Forzando un descanso de 60 segundos... ===');
+                console.log(`[Línea ${idInstancia}] Ráfaga: Descanso de 60 segundos...`);
                 await new Promise(resolve => setTimeout(resolve, 60000));
-                contadorEnviosSeguidos = 0; // Reiniciamos el contador tras la pausa larga
+                contadorEnviosSeguidos = 0;
             } else {
-                // Intervalo variable aumentado (Entre 15 y 25 segundos) para mitigar el rastreo automatizado de Meta
                 const esperaAleatoria = Math.floor(Math.random() * (25000 - 15000 + 1)) + 15000;
-                console.log(`Pausa de seguridad estándar: Esperando ${esperaAleatoria / 1000} segundos antes del siguiente...`);
+                console.log(`[Línea ${idInstancia}] Esperando ${esperaAleatoria / 1000} segundos...`);
                 await new Promise(resolve => setTimeout(resolve, esperaAleatoria));
             }
         }
@@ -192,9 +231,7 @@ app.post('/send-message', async (req, res) => {
         const urlDestino = app_script || "https://script.google.com/macros/s/AKfycbyiQd0fN6VVWL5FR85VJyOF_QzdjcvGIujVeBBTqiL992BKy8G0cfPBl__jnE0N0QMDYA/exec";
 
         if (urlDestino && respuestasParaGoogle.length > 0) {
-            console.log(`=== ENVIANDO RESPUESTAS DE VUELTA A GOOGLE SHEETS ===`);
-            console.log(`URL de Destino Sincronizada: ${urlDestino}`);
-
+            console.log(`=== ENVIANDO RESPUESTAS DE VUELTA A GOOGLE SHEETS DESDE INSTANCIA ${idInstancia} ===`);
             try {
                 const responseGoogle = await axios.post(urlDestino, {
                     op: 'resultado',
@@ -203,20 +240,9 @@ app.post('/send-message', async (req, res) => {
                     headers: { 'Content-Type': 'application/json' },
                     timeout: 20000
                 });
-
-                console.log('--- RESPUESTA RECIBIDA DESDE GOOGLE SHEETS ---');
-                console.log('Código de estado:', responseGoogle.status);
-                console.log('Cuerpo devuelto:', JSON.stringify(responseGoogle.data));
-                console.log(`====================================================`);
+                console.log('Código de estado Google:', responseGoogle.status);
             } catch (googleErr) {
-                console.error('!!! ERROR EN LA COMUNICACIÓN CON GOOGLE SHEETS !!!');
-                if (googleErr.response) {
-                    console.error('Código del estado del error:', googleErr.response.status);
-                    console.error('Detalles del Servidor de Google:', JSON.stringify(googleErr.response.data));
-                } else {
-                    console.error('Mensaje de error básico:', googleErr.message);
-                }
-                console.error(`====================================================`);
+                console.error('Error enviando reporte a Google Sheets:', googleErr.message);
             }
         }
 
@@ -226,11 +252,11 @@ app.post('/send-message', async (req, res) => {
 });
 
 app.get('/ping', (req, res) => {
-    res.json({ status: 'ok', connected: isConnected, time: new Date().toISOString() });
+    res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Servidor activo en puerto ${PORT}`);
-    connectToWhatsApp();
+    console.log(`Servidor Multi-Línea activo en puerto ${PORT}`);
+    initAllInstances();
 });
