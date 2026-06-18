@@ -238,7 +238,10 @@ app.post('/send-message', async (req, res) => {
                     if (checkStatus && checkStatus.length > 0 && checkStatus[0].exists) {
                         existeNumero = true;
                     }
-                } catch (errCheck) { existeNumero = true; }
+                } catch (errCheck) { 
+    console.log(`Error verificando ${msg.numero}: ${errCheck.message}`);
+    existeNumero = true; 
+}
                 
                 if (!existeNumero) {
                     respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
@@ -266,10 +269,13 @@ app.post('/send-message', async (req, res) => {
                 respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'ENVIADO ✅' });
                 contadorEnviosSeguidos++;
 
-            } catch (err) {
-                console.error(`Error en canal ${idInstanciaElegida}:`, err.message);
-                respuestasParaGoogle.push({ posicion: String(msg.posicion), estado: 'SIN WHATSAPP ❌' });
-            }
+           } catch (err) {
+    console.error(`Error en canal ${idInstanciaElegida}:`, err.message);
+    respuestasParaGoogle.push({ 
+        posicion: String(msg.posicion), 
+        estado: `ERROR: ${err.message.substring(0, 80)} ❌`
+    });
+}
 
             if (contadorEnviosSeguidos >= 3) {
                 await new Promise(resolve => setTimeout(resolve, 60000));
